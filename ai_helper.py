@@ -69,7 +69,10 @@ class KnowledgeBaseAI:
             f"   - Прямой вердикт (Разрешено / Запрещено / Порядок действий).\n"
             f"   - Пункт Регламента и краткое пояснение (1-2 предложения).\n"
             f"   - Санкция по коду D-XX (если применимо).\n\n"
-            f"5. ЕСЛИ ИНФОРМАЦИИ НЕТ В РЕГЛАМЕНТЕ:\n"
+            f"5. ОПИСАНИЕ ИГРОВЫХ И СПОРНЫХ СИТУАЦИЙ В МАТЧЕ:\n"
+            f"   - Если игрок описывает конкретную игровую ситуацию, инцидент в матче, спорный эпизод или нарушение соперника, обязательно добавь в конце ответа:\n"
+            f"     *«Данный ответ не является окончательным решением. Окончательное решение принимает ASCENT Head Referee.»*\n\n"
+            f"6. ЕСЛИ ИНФОРМАЦИИ НЕТ В РЕГЛАМЕНТЕ:\n"
             f"   - 'Данный вопрос не урегулирован Регламентом. Обратитесь в тикет к Администрации Лиги.'\n\n"
             f"=== ОФИЦИАЛЬНАЯ НОРМАТИВНАЯ БАЗА ASCENT LEAGUE ===\n"
             f"{self.knowledge_text}\n"
@@ -147,18 +150,22 @@ class KnowledgeBaseAI:
 
         prompt = f"Вопрос от игрока '{author_name}': {user_question}"
 
-        try:
-            if USE_NEW_GENAI and self.client:
-                return await asyncio.to_thread(self._sync_generate_new, prompt)
-            elif USE_OLD_GENAI and self.legacy_model:
-                return await asyncio.to_thread(self._sync_generate_old, prompt)
-            else:
-                return "⚠️ Ошибка конфигурации библиотеки Gemini."
-        except Exception as e:
-            logger.error(f"Ошибка при обращении к Gemini API: {e}")
-            error_str = str(e)
-            if "ResourceExhausted" in error_str or "quota" in error_str.lower():
-                return "⚠️ Превышен лимит запросов к ИИ. Пожалуйста, подождите минутку и попробуйте снова."
-            elif "API_KEY_INVALID" in error_str or "invalid" in error_str.lower() and "key" in error_str.lower():
-                return "⚠️ Указан недействительный API-ключ Gemini в `.env`. Проверьте ключ на https://aistudio.google.com."
-            return f"⚠️ Произошла ошибка при обработке запроса: `{e}`. Пожалуйста, обратитесь к администрации."
+        for attempt in range(2):
+            try:
+                if USE_NEW_GENAI and self.client:
+                    return await asyncio.to_thread(self._sync_generate_new, prompt)
+                elif USE_OLD_GENAI and self.legacy_model:
+                    return await asyncio.to_thread(self._sync_generate_old, prompt)
+                else:
+                    return "⚠️ Ошибка конфигурации библиотеки Gemini."
+            except Exception as e:
+                logger.error(f"Ошибка при обращении к Gemini API (попытка {attempt + 1}/2): {e}")
+                error_str = str(e)
+                if attempt == 0 and ("503" in error_str or "UNAVAILABLE" in error_str or "ResourceExhausted" in error_str):
+                    await asyncio.sleep(1.5)
+                    continue
+                if "ResourceExhausted" in error_str or "quota" in error_str.lower():
+                    return "⚠️ Превышен лимит запросов к ИИ. Пожалуйста, подождите минутку и попробуйте снова."
+                elif "API_KEY_INVALID" in error_str or ("invalid" in error_str.lower() and "key" in error_str.lower()):
+                    return "⚠️ Указан недействительный API-ключ Gemini в `.env`. Проверьте ключ на https://aistudio.google.com."
+                return f"⚠️ Произошла ошибка при обработке запроса: `{e}`. Пожалуйста, обратитесь к администрации."
