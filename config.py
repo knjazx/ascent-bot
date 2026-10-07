@@ -6,15 +6,15 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
-SERVER_NAME = os.getenv("SERVER_NAME", "ASCENT LEAGUE").strip()
-HELP_CHANNEL_ID_STR = os.getenv("HELP_CHANNEL_ID", "").strip()
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip().strip('"').strip("'")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip().strip('"').strip("'")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip().strip('"').strip("'")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip().strip('"').strip("'")
+SERVER_NAME = os.getenv("SERVER_NAME", "ASCENT LEAGUE").strip().strip('"').strip("'")
+HELP_CHANNEL_ID_STR = os.getenv("HELP_CHANNEL_ID", "").strip().strip('"').strip("'")
 HELP_CHANNEL_ID = int(HELP_CHANNEL_ID_STR) if HELP_CHANNEL_ID_STR.isdigit() else None
-ADMIN_ROLE_NAME = os.getenv("ADMIN_ROLE_NAME", "Администратор").strip()
+ADMIN_ROLE_NAME = os.getenv("ADMIN_ROLE_NAME", "Администратор").strip().strip('"').strip("'")
 
 # Настройки ограничения запросов (Rate Limiting)
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "5").strip() or "5")

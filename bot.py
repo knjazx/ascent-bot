@@ -286,11 +286,15 @@ async def on_message(message: discord.Message):
     is_mentioned = bot.user in message.mentions if bot.user else False
 
     # Проверяем канал помощи и ветки
+    parent_id = getattr(message.channel, "parent_id", None)
+    if parent_id is None and hasattr(message.channel, "parent") and message.channel.parent:
+        parent_id = message.channel.parent.id
+
     is_help_channel = bool(config.HELP_CHANNEL_ID and message.channel.id == config.HELP_CHANNEL_ID)
     is_help_thread = bool(
         config.HELP_CHANNEL_ID
         and isinstance(message.channel, discord.Thread)
-        and message.channel.parent_id == config.HELP_CHANNEL_ID
+        and parent_id == config.HELP_CHANNEL_ID
     )
 
     if is_help_channel or is_help_thread or is_mentioned:
@@ -350,13 +354,26 @@ async def on_message(message: discord.Message):
                 thread_title = thread_title[:57] + "..."
             thread_name = f"⚖️ Обращение: {thread_title}"
 
+            thread = None
             try:
                 # Создаем ветку на сообщении пользователя
                 thread = await message.create_thread(
                     name=thread_name,
                     auto_archive_duration=1440  # 24 часа неактивности
                 )
-                
+            except discord.HTTPException as e:
+                if e.code == 160004 or "already been created" in str(e):
+                    thread = message.thread
+                    if not thread and hasattr(message.channel, "threads"):
+                        thread = discord.utils.get(message.channel.threads, id=message.id)
+                else:
+                    logger.error(f"Ошибка HTTP при создании ветки: {e}")
+            except discord.Forbidden:
+                logger.warning("У бота нет прав на создание веток в канале помощи (требуется 'Create Public Threads'). Отвечаем в канале.")
+            except Exception as e:
+                logger.error(f"Ошибка при создании ветки: {e}")
+
+            if thread:
                 async with thread.typing():
                     answer = await ai.generate_answer(clean_content, author_name=message.author.display_name)
                     embed = discord.Embed(
@@ -370,10 +387,6 @@ async def on_message(message: discord.Message):
                         embed=embed
                     )
                 return
-            except discord.Forbidden:
-                logger.warning("У бота нет прав на создание веток в канале помощи (требуется 'Create Public Threads'). Отвечаем в канале.")
-            except Exception as e:
-                logger.error(f"Ошибка при создании ветки: {e}")
 
         # Если сообщение внутри существующей ветки помощи или при прямом упоминании
         chat_history = None
