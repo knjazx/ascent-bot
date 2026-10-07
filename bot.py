@@ -48,35 +48,7 @@ def is_user_admin(user: discord.Member | discord.User) -> bool:
     return any(role.name == config.ADMIN_ROLE_NAME for role in user.roles)
 
 
-class QuickActionView(discord.ui.View):
-    """Интерактивные кнопки под ответом бота."""
-    def __init__(self):
-        super().__init__(timeout=None)
 
-    @discord.ui.button(label="📜 Регламент CS2", style=discord.ButtonStyle.secondary, emoji="📖", custom_id="btn_rules")
-    async def rules_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="📜 Официальный регламент ASCENT LEAGUE CS2 (v1.0)",
-            description=(
-                "**Ключевые соревновательные нормы:**\n"
-                "• **Составы:** 5 Main + 0-3 Sub (макс. 8 игроков). Roster Lock за 24ч до старта (п. 3.3, 3.8).\n"
-                "• **Стендины:** макс. 1 в матче, макс. 2 за турнир; заявляется строго ДО старта матча (п. 3.6).\n"
-                "• **Скины агентов:** категорически ЗАПРЕЩЕНЫ, только дефолт (п. 8.5)!\n"
-                "• **Клавиатуры:** Rapid Trigger РАЗРЕШЁН; Snap Tap / SOCD — бан на 6 мес (код D-13).\n"
-                "• **Пунктуальность (Grace Period):** T+15 мин — ТП на карте 1; T+25 мин — Walkover (п. 7.7).\n"
-                "• **Протесты:** только капитаном в тикете `#protests` (Приложение G).\n\n"
-                "💡 *Задайте конкретный вопрос боту через команду* `/ask`!"
-            ),
-            color=discord.Color.blue()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @discord.ui.button(label="📩 Протест / Тикет", style=discord.ButtonStyle.primary, emoji="🎫", custom_id="btn_support")
-    async def support_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(
-            "📩 Официальные протесты подаются **исключительно капитаном команды** в канале **#protests** по установленной форме Приложения G (код нарушения, ID матча, доказательства GOTV/видео).",
-            ephemeral=True
-        )
 
 
 async def handle_ping(request):
@@ -182,8 +154,7 @@ async def ask_command(interaction: discord.Interaction, question: str):
         icon_url=interaction.user.display_avatar.url if interaction.user.display_avatar else None
     )
 
-    view = QuickActionView()
-    await interaction.followup.send(embed=embed, view=view)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="faq", description="Часто задаваемые вопросы по регламенту ASCENT LEAGUE CS2")
@@ -203,7 +174,7 @@ async def faq_command(interaction: discord.Interaction):
         ),
         color=discord.Color.gold()
     )
-    await interaction.response.send_message(embed=embed, view=QuickActionView())
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="rules", description="Показать ключевые положения регламента ASCENT LEAGUE CS2")
@@ -223,7 +194,7 @@ async def rules_command(interaction: discord.Interaction):
         ),
         color=discord.Color.red()
     )
-    await interaction.response.send_message(embed=embed, view=QuickActionView())
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="reload_rules", description="Перезагрузить базу знаний правил из файлов (для Администрации)")
@@ -322,8 +293,7 @@ async def on_message(message: discord.Message):
                     embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
                     await thread.send(
                         content=f"Уважаемый(-ая) {message.author.mention}, для рассмотрения Вашего обращения сформирована данная ветка:",
-                        embed=embed,
-                        view=QuickActionView()
+                        embed=embed
                     )
                 return
             except discord.Forbidden:
@@ -341,7 +311,7 @@ async def on_message(message: discord.Message):
                 color=discord.Color.teal()
             )
             embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
-            await message.reply(embed=embed, view=QuickActionView())
+            await message.reply(embed=embed)
 
     await bot.process_commands(message)
 
