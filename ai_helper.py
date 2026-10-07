@@ -124,17 +124,32 @@ class KnowledgeBaseAI:
         return count
 
     def _sync_generate_new(self, prompt: str) -> str:
-        """Синхронный вызов через google.genai."""
-        response = self.client.models.generate_content(
-            model=config.GEMINI_MODEL,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=self.get_system_instruction(),
-                temperature=0.2,
-            )
-        )
-        if response and response.text:
-            return response.text.strip()
+        """Синхронный вызов через google.genai с каскадным переключением моделей."""
+        models_to_try = [config.GEMINI_MODEL, "gemini-3-flash-preview", "gemini-flash-lite-latest"]
+        seen = set()
+        unique_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
+        last_error = None
+        for m in unique_models:
+            try:
+                response = self.client.models.generate_content(
+                    model=m,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=self.get_system_instruction(),
+                        temperature=0.2,
+                    )
+                )
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as e:
+                err_text = str(e)
+                logger.warning(f"Ошибка при вызове модели {m}: {err_text[:120]}. Пробуем резервную модель...")
+                last_error = e
+                continue
+
+        if last_error:
+            raise last_error
         return "Не удалось сформировать ответ. Пожалуйста, попробуйте снова."
 
     def _sync_generate_old(self, prompt: str) -> str:

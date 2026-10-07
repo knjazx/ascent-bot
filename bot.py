@@ -327,6 +327,12 @@ async def on_message(message: discord.Message):
                 description=desc,
                 color=EMBED_COLOR
             )
+            # Ставим реакцию ⏳ на сообщение в канале, подтверждая получение
+            try:
+                await message.add_reaction("⏳")
+            except Exception:
+                pass
+
             # Отправляем в ЛС, чтобы сообщение было видно только пользователю
             try:
                 await message.author.send(embed=embed)

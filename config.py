@@ -8,7 +8,7 @@ load_dotenv(BASE_DIR / ".env")
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip()
 SERVER_NAME = os.getenv("SERVER_NAME", "ASCENT LEAGUE").strip()
 HELP_CHANNEL_ID_STR = os.getenv("HELP_CHANNEL_ID", "").strip()
 HELP_CHANNEL_ID = int(HELP_CHANNEL_ID_STR) if HELP_CHANNEL_ID_STR.isdigit() else None

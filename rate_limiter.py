@@ -41,16 +41,18 @@ class UserRateLimiter:
         :return: (is_limited: bool, reason: str | None, retry_after_seconds: int | None)
                  reason может быть 'cooldown' или 'daily_limit'
         """
-        if is_admin:
-            return False, None, None
-
         now = time.time()
 
-        # 1. Проверка паузы (cooldown) между подряд идущими вопросами (60 сек)
+        # 1. Проверка паузы (cooldown) между вопросами (60 сек)
+        # Пауза действует для всех пользователей (включая администраторов), чтобы исключить спам
         last_time = self.last_request.get(user_id, 0)
         cooldown_remaining = int(self.cooldown_seconds - (now - last_time))
         if cooldown_remaining > 0:
             return True, "cooldown", cooldown_remaining
+
+        # Администраторы освобождены от суточного лимита (5 вопросов/день)
+        if is_admin:
+            return False, None, None
 
         # 2. Очистка меток времени за пределами скользящего окна (24 часа)
         timestamps = [t for t in self.requests[user_id] if now - t < self.window_seconds]
