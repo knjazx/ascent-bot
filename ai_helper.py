@@ -26,6 +26,8 @@ class KnowledgeBaseAI:
         self.knowledge_text = ""
         self.client = None
         self.legacy_model = None
+        self.groq_client = None
+        self.provider = None
         self.is_configured = False
         self.load_knowledge()
         self.setup_ai()
@@ -85,36 +87,47 @@ class KnowledgeBaseAI:
         )
 
     def setup_ai(self):
-        """Инициализирует подключение к Google Gemini API."""
-        if not config.GEMINI_API_KEY:
-            logger.warning("GEMINI_API_KEY не установлен. Бот ожидает настройки ключа в .env.")
-            self.is_configured = False
-            return
-
-        if USE_NEW_GENAI:
+        """Инициализирует подключение к Groq AI или Google Gemini API."""
+        # 1. Приоритет: Groq API (14 400 бесплатных запросов в день на Llama 3.3 70B)
+        if config.GROQ_API_KEY:
             try:
-                self.client = genai.Client(api_key=config.GEMINI_API_KEY)
+                from groq import Groq
+                self.groq_client = Groq(api_key=config.GROQ_API_KEY)
+                self.provider = "groq"
                 self.is_configured = True
-                logger.info(f"Gemini AI успешно подключен (SDK: google.genai, модель: {config.GEMINI_MODEL})")
+                logger.info(f"Groq AI успешно подключен (модель: {config.GROQ_MODEL}, лимит: 14 400 запр/день)")
                 return
             except Exception as e:
-                logger.error(f"Ошибка инициализации нового google-genai: {e}")
+                logger.error(f"Ошибка инициализации Groq AI: {e}")
 
-        if USE_OLD_GENAI:
-            try:
-                legacy_genai.configure(api_key=config.GEMINI_API_KEY)
-                self.legacy_model = legacy_genai.GenerativeModel(
-                    model_name=config.GEMINI_MODEL,
-                    system_instruction=self.get_system_instruction()
-                )
-                self.is_configured = True
-                logger.info(f"Gemini AI успешно подключен (SDK: legacy google.generativeai, модель: {config.GEMINI_MODEL})")
-                return
-            except Exception as e:
-                logger.error(f"Ошибка инициализации legacy generativeai: {e}")
+        # 2. Google Gemini API
+        if config.GEMINI_API_KEY:
+            if USE_NEW_GENAI:
+                try:
+                    self.client = genai.Client(api_key=config.GEMINI_API_KEY)
+                    self.provider = "gemini"
+                    self.is_configured = True
+                    logger.info(f"Gemini AI успешно подключен (SDK: google.genai, модель: {config.GEMINI_MODEL})")
+                    return
+                except Exception as e:
+                    logger.error(f"Ошибка инициализации нового google-genai: {e}")
+
+            if USE_OLD_GENAI:
+                try:
+                    legacy_genai.configure(api_key=config.GEMINI_API_KEY)
+                    self.legacy_model = legacy_genai.GenerativeModel(
+                        model_name=config.GEMINI_MODEL,
+                        system_instruction=self.get_system_instruction()
+                    )
+                    self.provider = "gemini"
+                    self.is_configured = True
+                    logger.info(f"Gemini AI успешно подключен (SDK: legacy google.generativeai, модель: {config.GEMINI_MODEL})")
+                    return
+                except Exception as e:
+                    logger.error(f"Ошибка инициализации legacy generativeai: {e}")
 
         self.is_configured = False
-        logger.error("Не удалось настроить библиотеку Gemini AI. Проверьте установку google-genai.")
+        logger.warning("Ни GROQ_API_KEY, ни GEMINI_API_KEY не настроены в .env.")
 
     def reload(self) -> int:
         """Перезагружает базу знаний и обновляет модель."""
@@ -159,6 +172,21 @@ class KnowledgeBaseAI:
             return response.text.strip()
         return "Не удалось сформировать ответ. Пожалуйста, попробуйте снова."
 
+    def _sync_generate_groq(self, prompt: str) -> str:
+        """Синхронный вызов через Groq API."""
+        completion = self.groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": self.get_system_instruction()},
+                {"role": "user", "content": prompt}
+            ],
+            model=config.GROQ_MODEL,
+            temperature=0.2,
+            max_tokens=600
+        )
+        if completion.choices and completion.choices[0].message.content:
+            return completion.choices[0].message.content.strip()
+        return "Не удалось сформировать ответ. Пожалуйста, попробуйте снова."
+
     async def generate_answer(
         self,
         user_question: str,
@@ -169,7 +197,7 @@ class KnowledgeBaseAI:
         if not self.is_configured:
             return (
                 "⚠️ **ИИ-помощник ещё не настроен администратором!**\n"
-                "Чтобы бот мог отвечать на вопросы, необходимо указать `GEMINI_API_KEY` в файле `.env`.\n"
+                "Чтобы бот мог отвечать на вопросы, необходимо указать `GROQ_API_KEY` (рекомендуется) или `GEMINI_API_KEY` в файле `.env`.\n"
                 "Вы можете ознакомиться с правилами в канале регламента или создать тикет в поддержке."
             )
 
@@ -191,20 +219,24 @@ class KnowledgeBaseAI:
 
         for attempt in range(2):
             try:
-                if USE_NEW_GENAI and self.client:
+                if self.provider == "groq" and self.groq_client:
+                    return await asyncio.to_thread(self._sync_generate_groq, prompt)
+                elif USE_NEW_GENAI and self.client:
                     return await asyncio.to_thread(self._sync_generate_new, prompt)
                 elif USE_OLD_GENAI and self.legacy_model:
                     return await asyncio.to_thread(self._sync_generate_old, prompt)
                 else:
-                    return "⚠️ Ошибка конфигурации библиотеки Gemini."
+                    return "⚠️ Ошибка конфигурации библиотеки ИИ."
             except Exception as e:
-                logger.error(f"Ошибка при обращении к Gemini API (попытка {attempt + 1}/2): {e}")
+                logger.error(f"Ошибка при обращении к ИИ (попытка {attempt + 1}/2): {e}")
                 error_str = str(e)
-                if attempt == 0 and ("503" in error_str or "UNAVAILABLE" in error_str or "ResourceExhausted" in error_str):
+                if attempt == 0 and ("503" in error_str or "UNAVAILABLE" in error_str or "429" in error_str or "rate_limit" in error_str.lower()):
                     await asyncio.sleep(1.5)
                     continue
-                if "ResourceExhausted" in error_str or "quota" in error_str.lower():
-                    return "⚠️ Превышен лимит запросов к ИИ. Пожалуйста, подождите минутку и попробуйте снова."
+                if "402" in error_str or "prepayment" in error_str.lower():
+                    return "⚠️ На текущем ключе закончился предоплаченный баланс (Ошибка 402: Prepayment credits depleted). Рекомендуется бесплатный Groq API (14 400 запр/день на https://console.groq.com) или новый ключ Gemini."
+                elif "ResourceExhausted" in error_str or "429" in error_str or "quota" in error_str.lower() or "rate_limit" in error_str.lower():
+                    return "⚠️ Временно превышен лимит запросов к ИИ. Пожалуйста, подождите минутку и попробуйте снова."
                 elif "API_KEY_INVALID" in error_str or ("invalid" in error_str.lower() and "key" in error_str.lower()):
-                    return "⚠️ Указан недействительный API-ключ Gemini в `.env`. Проверьте ключ на https://aistudio.google.com."
-                return f"⚠️ Произошла ошибка при обработке запроса: `{e}`. Пожалуйста, обратитесь к администрации."
+                    return "⚠️ Указан недействительный API-ключ в `.env`."
+                return f"⚠️ Произошла ошибка при обращении к ИИ. Пожалуйста, обратитесь к администрации."
