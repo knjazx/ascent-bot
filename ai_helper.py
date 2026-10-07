@@ -173,18 +173,32 @@ class KnowledgeBaseAI:
         return "Не удалось сформировать ответ. Пожалуйста, попробуйте снова."
 
     def _sync_generate_groq(self, prompt: str) -> str:
-        """Синхронный вызов через Groq API."""
-        completion = self.groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": self.get_system_instruction()},
-                {"role": "user", "content": prompt}
-            ],
-            model=config.GROQ_MODEL,
-            temperature=0.2,
-            max_tokens=600
-        )
-        if completion.choices and completion.choices[0].message.content:
-            return completion.choices[0].message.content.strip()
+        """Синхронный вызов через Groq API с каскадом моделей."""
+        models_to_try = [config.GROQ_MODEL, "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+        seen = set()
+        unique_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
+        last_error = None
+        for m in unique_models:
+            try:
+                completion = self.groq_client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": self.get_system_instruction()},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model=m,
+                    temperature=0.2,
+                    max_tokens=600
+                )
+                if completion.choices and completion.choices[0].message.content:
+                    return completion.choices[0].message.content.strip()
+            except Exception as e:
+                logger.warning(f"Ошибка Groq модели {m}: {e}. Пробуем резервную...")
+                last_error = e
+                continue
+
+        if last_error:
+            raise last_error
         return "Не удалось сформировать ответ. Пожалуйста, попробуйте снова."
 
     async def generate_answer(
