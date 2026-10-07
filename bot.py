@@ -38,6 +38,9 @@ rate_limiter = UserRateLimiter(
     cooldown_seconds=config.RATE_LIMIT_COOLDOWN_SECONDS
 )
 
+# Цвет полоски в Embed-сообщениях (серый)
+EMBED_COLOR = discord.Color.light_grey()
+
 
 def is_user_admin(user: discord.Member | discord.User) -> bool:
     """Проверяет наличие прав администратора или служебной роли у пользователя."""
@@ -120,7 +123,7 @@ async def ask_command(interaction: discord.Interaction, question: str):
         embed = discord.Embed(
             title="⏳ Ограничение частоты запросов",
             description=desc,
-            color=discord.Color.orange()
+            color=EMBED_COLOR
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
@@ -146,7 +149,7 @@ async def ask_command(interaction: discord.Interaction, question: str):
     embed = discord.Embed(
         title="⚖️ Официальное разъяснение ASCENT LEAGUE",
         description=answer_truncated,
-        color=discord.Color.green()
+        color=EMBED_COLOR
     )
     embed.add_field(name="❓ Запрос участника", value=f"*{question}*", inline=False)
     embed.set_footer(
@@ -172,7 +175,7 @@ async def faq_command(interaction: discord.Interaction):
             "**7. Призовые:** выплата в ASCENT Coins (ASC) в течение 7 дней (п. 11.3).\n\n"
             "💬 *Нужен ответ на другой вопрос? Напишите:* `/ask ваш вопрос`"
         ),
-        color=discord.Color.gold()
+        color=EMBED_COLOR
     )
     await interaction.response.send_message(embed=embed)
 
@@ -192,7 +195,7 @@ async def rules_command(interaction: discord.Interaction):
             "• **Раздел 11:** Регламент выплаты призовых (ASC) и Prizepool Safety Clause\n\n"
             "💡 Чтобы узнать точный пункт или наказание, спросите бота: `/ask <вопрос>`"
         ),
-        color=discord.Color.red()
+        color=EMBED_COLOR
     )
     await interaction.response.send_message(embed=embed)
 
@@ -262,9 +265,14 @@ async def on_message(message: discord.Message):
             embed = discord.Embed(
                 title="⏳ Ограничение частоты запросов",
                 description=desc,
-                color=discord.Color.orange()
+                color=EMBED_COLOR
             )
-            await message.reply(embed=embed, delete_after=15)
+            # Отправляем в ЛС, чтобы сообщение было видно только пользователю
+            try:
+                await message.author.send(embed=embed)
+            except (discord.Forbidden, discord.HTTPException):
+                # Если у пользователя закрыты ЛС, отправляем с быстрым авто-удалением
+                await message.reply(embed=embed, delete_after=5)
             return
 
         rate_limiter.record_request(message.author.id)
@@ -288,7 +296,7 @@ async def on_message(message: discord.Message):
                     embed = discord.Embed(
                         title="⚖️ Официальное разъяснение ASCENT LEAGUE",
                         description=answer[:4000],
-                        color=discord.Color.teal()
+                        color=EMBED_COLOR
                     )
                     embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
                     await thread.send(
@@ -308,7 +316,7 @@ async def on_message(message: discord.Message):
             embed = discord.Embed(
                 title="⚖️ Официальное разъяснение ASCENT LEAGUE",
                 description=answer[:4000],
-                color=discord.Color.teal()
+                color=EMBED_COLOR
             )
             embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
             await message.reply(embed=embed)
