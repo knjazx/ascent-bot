@@ -72,7 +72,9 @@ class KnowledgeBaseAI:
             f"5. ОПИСАНИЕ ИГРОВЫХ И СПОРНЫХ СИТУАЦИЙ В МАТЧЕ:\n"
             f"   - Если игрок описывает конкретную игровую ситуацию, инцидент в матче, спорный эпизод или нарушение соперника, обязательно добавь в конце ответа:\n"
             f"     *«Данный ответ не является окончательным решением. Окончательное решение принимает ASCENT Head Referee.»*\n\n"
-            f"6. ЕСЛИ ИНФОРМАЦИИ НЕТ В РЕГЛАМЕНТЕ:\n"
+            f"6. ДИАЛОГ В ВЕТКЕ (THREAD):\n"
+            f"   - Если вопрос является продолжением предшествующего обсуждения в ветке, учитывай контекст предыдущих реплик, понимай местоимения ('он', 'они', 'это') и развивай ответ с учётом сказанного ранее.\n\n"
+            f"7. ЕСЛИ ИНФОРМАЦИИ НЕТ В РЕГЛАМЕНТЕ:\n"
             f"   - 'Данный вопрос не урегулирован Регламентом. Обратитесь в тикет к Администрации Лиги.'\n\n"
             f"=== ОФИЦИАЛЬНАЯ НОРМАТИВНАЯ БАЗА ASCENT LEAGUE ===\n"
             f"{self.knowledge_text}\n"
@@ -139,8 +141,13 @@ class KnowledgeBaseAI:
             return response.text.strip()
         return "Не удалось сформировать ответ. Пожалуйста, попробуйте снова."
 
-    async def generate_answer(self, user_question: str, author_name: str = "Игрок") -> str:
-        """Асинхронно генерирует ответ на вопрос игрока."""
+    async def generate_answer(
+        self,
+        user_question: str,
+        author_name: str = "Игрок",
+        chat_history: list = None
+    ) -> str:
+        """Асинхронно генерирует ответ на вопрос игрока с учётом контекста ветки."""
         if not self.is_configured:
             return (
                 "⚠️ **ИИ-помощник ещё не настроен администратором!**\n"
@@ -148,7 +155,21 @@ class KnowledgeBaseAI:
                 "Вы можете ознакомиться с правилами в канале регламента или создать тикет в поддержке."
             )
 
-        prompt = f"Вопрос от игрока '{author_name}': {user_question}"
+        if chat_history:
+            history_lines = []
+            for speaker, text in chat_history:
+                short_text = text[:800] + ("..." if len(text) > 800 else "")
+                history_lines.append(f"[{speaker}]:\n{short_text}\n")
+            history_context = "\n".join(history_lines)
+            prompt = (
+                f"=== ИСТОРИЯ ДИАЛОГА В ЭТОЙ ВЕТКЕ ОБРАЩЕНИЯ ===\n"
+                f"{history_context}\n"
+                f"=== КОНЕЦ ИСТОРИИ ДИАЛОГА ===\n\n"
+                f"Текущее продолжение вопроса от игрока '{author_name}': {user_question}\n"
+                f"Ответь на текущее сообщение игрока с учётом контекста предшествующего диалога выше."
+            )
+        else:
+            prompt = f"Вопрос от игрока '{author_name}': {user_question}"
 
         for attempt in range(2):
             try:

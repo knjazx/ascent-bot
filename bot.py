@@ -216,6 +216,66 @@ async def reload_rules_command(interaction: discord.Interaction):
     )
 
 
+async def get_thread_history(thread: discord.Thread, current_message: discord.Message, max_messages: int = 10) -> list:
+    """Собирает историю сообщений в ветке для сохранения контекста диалога."""
+    history = []
+
+    # 1. Пытаемся получить исходный вопрос, на основе которого создана ветка
+    try:
+        starter_text = None
+        starter_author = "Игрок"
+        if thread.starter_message and thread.starter_message.clean_content:
+            starter_text = thread.starter_message.clean_content.strip()
+            starter_author = thread.starter_message.author.display_name
+        elif thread.parent:
+            try:
+                parent_msg = await thread.parent.fetch_message(thread.id)
+                if parent_msg and parent_msg.clean_content:
+                    starter_text = parent_msg.clean_content.strip()
+                    starter_author = parent_msg.author.display_name
+            except Exception:
+                pass
+
+        if starter_text:
+            history.append((f"Игрок ({starter_author}) [Исходный вопрос]", starter_text))
+    except Exception as e:
+        logger.debug(f"Не удалось получить стартовое сообщение ветки: {e}")
+
+    # 2. Собираем сообщения из самой ветки, предшествующие текущему вопросу
+    try:
+        raw_msgs = []
+        async for msg in thread.history(limit=max_messages, before=current_message):
+            raw_msgs.append(msg)
+
+        # Переворачиваем в хронологический порядок (от старых к новым)
+        raw_msgs.reverse()
+
+        for msg in raw_msgs:
+            if msg.author == bot.user:
+                # Извлекаем ответ бота из embed.description или контента
+                text = ""
+                if msg.embeds:
+                    for emb in msg.embeds:
+                        if emb.description:
+                            text += emb.description + "\n"
+                if msg.content:
+                    clean = msg.content
+                    if not clean.startswith("Уважаемый"):
+                        text += clean
+                text = text.strip()
+                if text:
+                    history.append(("ASCENT HELPER (ИИ)", text))
+            else:
+                author_name = msg.author.display_name
+                text = msg.clean_content.strip()
+                if text:
+                    history.append((f"Игрок ({author_name})", text))
+    except Exception as e:
+        logger.error(f"Ошибка при получении истории сообщений ветки: {e}")
+
+    return history
+
+
 @bot.event
 async def on_message(message: discord.Message):
     """Обработка сообщений в канале помощи или при упоминании бота."""
@@ -310,8 +370,16 @@ async def on_message(message: discord.Message):
                 logger.error(f"Ошибка при создании ветки: {e}")
 
         # Если сообщение внутри существующей ветки помощи или при прямом упоминании
+        chat_history = None
+        if isinstance(message.channel, discord.Thread):
+            chat_history = await get_thread_history(message.channel, message)
+
         async with message.channel.typing():
-            answer = await ai.generate_answer(clean_content, author_name=message.author.display_name)
+            answer = await ai.generate_answer(
+                clean_content,
+                author_name=message.author.display_name,
+                chat_history=chat_history
+            )
             
             embed = discord.Embed(
                 title="⚖️ Официальное разъяснение ASCENT LEAGUE",
