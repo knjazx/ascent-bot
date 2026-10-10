@@ -423,11 +423,14 @@ async def on_message(message: discord.Message):
                 color=EMBED_COLOR
             )
 
-            # Отправляем сообщение в тот же канал с авто-удалением через 6 секунд (не засоряет чат)
+            # Отправляем сообщение в чат ответом пользователю (строго 1 раз, не удаляется)
             try:
-                await message.channel.send(content=f"{message.author.mention}", embed=embed, delete_after=6)
+                await message.reply(embed=embed)
             except Exception:
-                pass
+                try:
+                    await message.channel.send(content=f"{message.author.mention}", embed=embed)
+                except Exception:
+                    pass
             return
 
         rate_limiter.record_request(message.author.id)
