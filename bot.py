@@ -91,12 +91,17 @@ async def on_ready():
     )
     await bot.change_presence(status=discord.Status.online, activity=activity)
 
-    # Синхронизация слэш-команд
+    # Синхронизация слэш-команд (моментально для серверов + глобально)
     try:
+        for guild in bot.guilds:
+            bot.tree.copy_global_to(guild=guild)
+            await bot.tree.sync(guild=guild)
+            logger.info(f"Сервер '{guild.name}': моментально синхронизированы слэш-команды")
         synced = await bot.tree.sync()
-        logger.info(f"Синхронизировано слэш-команд: {len(synced)}")
+        logger.info(f"Глобально синхронизировано слэш-команд: {len(synced)}")
     except Exception as e:
         logger.error(f"Ошибка синхронизации слэш-команд: {e}")
+
 
 
 @bot.tree.command(name="ask", description="Задать вопрос по регламенту ASCENT LEAGUE CS2")
@@ -246,6 +251,51 @@ async def set_logs_channel_command(interaction: discord.Interaction, channel: di
         logger.warning(f"Не удалось отправить приветственное сообщение в канал {channel.id}: {e}")
 
 
+@bot.command(name="sync")
+async def sync_prefix_command(ctx: commands.Context):
+    """Префиксная команда моментальной синхронизации слэш-команд: !sync"""
+    if not is_user_admin(ctx.author):
+        return
+    msg = await ctx.reply("🔄 Принудительно синхронизирую слэш-команды на сервере...")
+    try:
+        if ctx.guild:
+            bot.tree.copy_global_to(guild=ctx.guild)
+            synced_guild = await bot.tree.sync(guild=ctx.guild)
+        synced_global = await bot.tree.sync()
+        await msg.edit(content=f"✅ Успешно синхронизировано **{len(synced_global)}** команд! Нажмите `Ctrl + R` в клиенте Discord для обновления списка команд.")
+    except Exception as e:
+        await msg.edit(content=f"❌ Ошибка синхронизации: {e}")
+
+
+@bot.command(name="set_logs_channel", aliases=["logs", "set_log", "log_channel"])
+async def set_logs_prefix_command(ctx: commands.Context, channel: discord.TextChannel = None):
+    """Префиксная команда назначения канала логов: !set_logs_channel #канал (или !logs #канал)"""
+    if not is_user_admin(ctx.author):
+        await ctx.reply("❌ У Вас нет прав администратора.")
+        return
+
+    if not channel:
+        await ctx.reply("Пожалуйста, укажите канал, например: `!set_logs_channel #bot-logs` (или `!logs #bot-logs`).")
+        return
+
+    config.set_logs_channel_id(channel.id)
+    await ctx.reply(f"✅ Канал для отзывов и логов успешно назначен: {channel.mention}")
+
+    try:
+        test_embed = discord.Embed(
+            title="⚙️ Канал логов и отзывов подключен",
+            description=(
+                f"Данный канал назначен для сбора отзывов участников и логов **{config.SERVER_NAME}**.\n"
+                f"Назначил администратор: {ctx.author.mention}."
+            ),
+            color=EMBED_COLOR
+        )
+        await channel.send(embed=test_embed)
+    except Exception as e:
+        logger.warning(f"Не удалось отправить приветственное сообщение в канал {channel.id}: {e}")
+
+
+
 
 async def get_thread_history(thread: discord.Thread, current_message: discord.Message, max_messages: int = 10) -> list:
     """Собирает историю сообщений в ветке для сохранения контекста диалога."""
@@ -311,6 +361,11 @@ async def get_thread_history(thread: discord.Thread, current_message: discord.Me
 async def on_message(message: discord.Message):
     """Обработка сообщений в канале помощи или при упоминании бота."""
     if message.author.bot:
+        return
+
+    # Если сообщение начинается с префикса '!' (например !sync или !set_logs_channel)
+    if message.content.startswith(bot.command_prefix or "!"):
+        await bot.process_commands(message)
         return
 
     # Проверяем, упоминается ли бот напрямую
@@ -440,9 +495,6 @@ async def on_message(message: discord.Message):
             embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
             feedback_view = FeedbackView(question=clean_content, answer=answer)
             await message.reply(embed=embed, view=feedback_view)
-
-
-    await bot.process_commands(message)
 
 
 def main():
