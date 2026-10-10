@@ -168,21 +168,6 @@ async def ask_command(interaction: discord.Interaction, question: str):
     feedback_view = FeedbackView(question=question, answer=answer)
     await interaction.followup.send(embed=embed, view=feedback_view)
 
-    # Логируем обращение в канал логов Лиги
-    loc_name = f"<#{interaction.channel_id}>" if interaction.channel_id else "Слэш-команда /ask"
-    await log_bot_activity(
-        client=bot,
-        title="💬 Новое обращение участника (/ask)",
-        color=discord.Color.blue(),
-        user=interaction.user,
-        location_str=loc_name,
-        fields=[
-            ("❓ Запрос участника", f"*{question[:400]}*", False),
-            ("🤖 Ответ бота", answer_truncated[:800] + ("..." if len(answer_truncated) > 800 else ""), False)
-        ],
-        guild=interaction.guild
-    )
-
 
 
 @bot.tree.command(name="faq", description="Часто задаваемые вопросы по регламенту ASCENT LEAGUE CS2")
@@ -596,21 +581,6 @@ async def on_message(message: discord.Message):
                         embed=embed,
                         view=feedback_view
                     )
-
-                # Логируем в канал логов
-                loc_name = thread.mention if hasattr(thread, "mention") else f"<#{thread.id}>"
-                await log_bot_activity(
-                    client=bot,
-                    title="💬 Новое обращение в ветке",
-                    color=discord.Color.blue(),
-                    user=message.author,
-                    location_str=loc_name,
-                    fields=[
-                        ("❓ Запрос участника", f"*{clean_content[:400]}*", False),
-                        ("🤖 Ответ бота", answer[:800] + ("..." if len(answer) > 800 else ""), False)
-                    ],
-                    guild=message.guild
-                )
                 return
 
         # Если сообщение внутри существующей ветки помощи или при прямом упоминании
@@ -633,21 +603,6 @@ async def on_message(message: discord.Message):
             embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
             feedback_view = FeedbackView(question=clean_content, answer=answer)
             await message.reply(embed=embed, view=feedback_view)
-
-            # Логируем ответ в ветке в канал логов
-            loc_name = message.channel.mention if hasattr(message.channel, "mention") else f"<#{message.channel.id}>"
-            await log_bot_activity(
-                client=bot,
-                title="💬 Ответ в ветке обращения",
-                color=discord.Color.blue(),
-                user=message.author,
-                location_str=loc_name,
-                fields=[
-                    ("❓ Запрос участника", f"*{clean_content[:400]}*", False),
-                    ("🤖 Ответ бота", answer[:800] + ("..." if len(answer) > 800 else ""), False)
-                ],
-                guild=message.guild
-            )
 
 
 
