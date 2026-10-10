@@ -18,6 +18,7 @@ from discord.ext import commands
 import config
 from ai_helper import KnowledgeBaseAI
 from rate_limiter import UserRateLimiter
+from feedback import FeedbackView
 
 # Настройка логирования
 logging.basicConfig(
@@ -156,8 +157,8 @@ async def ask_command(interaction: discord.Interaction, question: str):
         text=footer_text,
         icon_url=interaction.user.display_avatar.url if interaction.user.display_avatar else None
     )
-
-    await interaction.followup.send(embed=embed)
+    feedback_view = FeedbackView(question=question, answer=answer)
+    await interaction.followup.send(embed=embed, view=feedback_view)
 
 
 @bot.tree.command(name="faq", description="Часто задаваемые вопросы по регламенту ASCENT LEAGUE CS2")
@@ -214,6 +215,36 @@ async def reload_rules_command(interaction: discord.Interaction):
         f"Статус ИИ: {'🟢 Активен' if ai.is_configured else '🔴 Ключ не настроен'}",
         ephemeral=True
     )
+
+
+@bot.tree.command(name="set_logs_channel", description="Назначить канал для получения отзывов (👍/👎) и логов (для Администрации)")
+@app_commands.describe(channel="Текстовый канал, куда бот будет присылать отзывы и логи")
+async def set_logs_channel_command(interaction: discord.Interaction, channel: discord.TextChannel):
+    """Команда назначения канала для логирования отзывов."""
+    if not is_user_admin(interaction.user):
+        await interaction.response.send_message("❌ У Вас нет прав для выполнения данной команды.", ephemeral=True)
+        return
+
+    config.set_logs_channel_id(channel.id)
+    await interaction.response.send_message(
+        f"✅ Канал для отзывов и логов успешно назначен: {channel.mention}\n"
+        f"Все оценки ответов (👍 / 👎) и замечания игроков будут поступать в этот канал.",
+        ephemeral=True
+    )
+
+    try:
+        test_embed = discord.Embed(
+            title="⚙️ Канал логов и отзывов подключен",
+            description=(
+                f"Данный канал назначен для сбора отзывов участников и логов **{config.SERVER_NAME}**.\n"
+                f"Назначил администратор: {interaction.user.mention}."
+            ),
+            color=EMBED_COLOR
+        )
+        await channel.send(embed=test_embed)
+    except Exception as e:
+        logger.warning(f"Не удалось отправить приветственное сообщение в канал {channel.id}: {e}")
+
 
 
 async def get_thread_history(thread: discord.Thread, current_message: discord.Message, max_messages: int = 10) -> list:
@@ -312,6 +343,11 @@ async def on_message(message: discord.Message):
         is_admin = is_user_admin(message.author)
         is_limited, reason, retry_after = rate_limiter.is_rate_limited(message.author.id, is_admin=is_admin)
         if is_limited:
+            # Защита от спам-атак на бота: отправляем уведомление СТРОГО 1 раз за период кулдауна
+            if not rate_limiter.should_notify(message.author.id):
+                # Повторные сообщения во время активного кд полностью игнорируются
+                return
+
             time_str = rate_limiter.format_time(retry_after)
             if reason == "cooldown":
                 desc = (
@@ -331,18 +367,12 @@ async def on_message(message: discord.Message):
                 description=desc,
                 color=EMBED_COLOR
             )
-            # Ставим реакцию ⏳ на сообщение в канале, подтверждая получение
+
+            # Отправляем сообщение в тот же канал с авто-удалением через 6 секунд (не засоряет чат)
             try:
-                await message.add_reaction("⏳")
+                await message.channel.send(content=f"{message.author.mention}", embed=embed, delete_after=6)
             except Exception:
                 pass
-
-            # Отправляем в ЛС, чтобы сообщение было видно только пользователю
-            try:
-                await message.author.send(embed=embed)
-            except (discord.Forbidden, discord.HTTPException):
-                # Если у пользователя закрыты ЛС, отправляем с быстрым авто-удалением
-                await message.reply(embed=embed, delete_after=5)
             return
 
         rate_limiter.record_request(message.author.id)
@@ -382,9 +412,11 @@ async def on_message(message: discord.Message):
                         color=EMBED_COLOR
                     )
                     embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
+                    feedback_view = FeedbackView(question=clean_content, answer=answer)
                     await thread.send(
                         content=f"Уважаемый(-ая) {message.author.mention}, для рассмотрения Вашего обращения сформирована данная ветка:",
-                        embed=embed
+                        embed=embed,
+                        view=feedback_view
                     )
                 return
 
@@ -406,7 +438,9 @@ async def on_message(message: discord.Message):
                 color=EMBED_COLOR
             )
             embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
-            await message.reply(embed=embed)
+            feedback_view = FeedbackView(question=clean_content, answer=answer)
+            await message.reply(embed=embed, view=feedback_view)
+
 
     await bot.process_commands(message)
 

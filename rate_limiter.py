@@ -18,6 +18,20 @@ class UserRateLimiter:
         self.cooldown_seconds = cooldown_seconds
         self.requests = defaultdict(list)
         self.last_request = {}
+        self.last_warned = {}
+
+    def should_notify(self, user_id: int) -> bool:
+        """
+        Проверяет, нужно ли отправлять уведомление о лимите.
+        Возвращает True строго 1 раз за период кулдауна, чтобы защитить бота от спам-атак.
+        """
+        now = time.time()
+        last_warn = self.last_warned.get(user_id, 0)
+        # Если с момента предыдущего уведомления прошло меньше времени кулдауна — блокируем
+        if now - last_warn < self.cooldown_seconds:
+            return False
+        self.last_warned[user_id] = now
+        return True
 
     def format_time(self, seconds: int) -> str:
         """Красиво форматирует секунды в читаемый вид (часы, минуты, секунды)."""
@@ -79,3 +93,5 @@ class UserRateLimiter:
         now = time.time()
         self.last_request[user_id] = now
         self.requests[user_id].append(now)
+        self.last_warned.pop(user_id, None)
+
