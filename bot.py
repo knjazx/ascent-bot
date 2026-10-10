@@ -442,15 +442,57 @@ async def on_message(message: discord.Message):
         if owner_id and message.author.id != owner_id and not is_admin:
             try:
                 await message.delete()
-                warning_text = (
-                    f"⛔ {message.author.mention}, эта ветка является персональным обращением другого игрока.\n"
-                    f"Писать в чужие ветки запрещено! Пожалуйста, задайте свой вопрос в основном канале <#{config.HELP_CHANNEL_ID}>."
-                )
-                await thread.send(warning_text, delete_after=6)
             except discord.Forbidden:
                 logger.warning(f"У бота нет прав на удаление сообщений (Manage Messages) в ветке {thread.id}")
             except Exception as e:
                 logger.error(f"Ошибка при модерации чужого сообщения в ветке: {e}")
+
+            # Отправка уведомления об удалении строго в ЛС (Личные сообщения) пользователю
+            embed = discord.Embed(
+                title="⛔ Сообщение удалено",
+                description=(
+                    f"Здравствуйте, {message.author.display_name}!\n\n"
+                    f"Ваше сообщение в ветке **{thread.name}** на сервере **{message.guild.name if message.guild else config.SERVER_NAME}** "
+                    f"было автоматически удалено, так как эта ветка является **персональным обращением другого игрока**.\n\n"
+                    f"Пожалуйста, не пишите в чужие ветки. Если у Вас есть вопрос к судьям или регламенту Лиги, "
+                    f"задайте его в основном канале <#{config.HELP_CHANNEL_ID}>, и бот автоматически создаст для Вас персональную ветку."
+                ),
+                color=EMBED_COLOR
+            )
+            if message.content:
+                text_preview = message.content[:400] + ("..." if len(message.content) > 400 else "")
+                embed.add_field(name="Ваш текст:", value=f"> {text_preview}", inline=False)
+            embed.set_footer(text=f"{config.SERVER_NAME} • Защита обращений")
+
+            try:
+                await message.author.send(embed=embed)
+            except (discord.Forbidden, discord.HTTPException):
+                # Если у пользователя закрыты ЛС от участников сервера
+                try:
+                    await thread.send(
+                        f"⛔ {message.author.mention}, писать в чужие ветки запрещено! Задайте вопрос в канале <#{config.HELP_CHANNEL_ID}>.",
+                        delete_after=5
+                    )
+                except Exception:
+                    pass
+
+            # Логируем действие модерации в канал логов Лиги
+            try:
+                await log_bot_activity(
+                    client=bot,
+                    title="🛡️ Удаление сообщения из чужой ветки",
+                    color=discord.Color.orange(),
+                    user=message.author,
+                    location_str=thread.mention if hasattr(thread, "mention") else f"<#{thread.id}>",
+                    fields=[
+                        ("Автор ветки", f"<@{owner_id}>", True),
+                        ("Удалённый текст", f"```{message.content[:400]}```" if message.content else "*(пусто / медиа)*", False)
+                    ],
+                    guild=message.guild
+                )
+            except Exception as e:
+                logger.error(f"Ошибка логирования модерации ветки: {e}")
+
             return
 
     if is_help_channel or is_help_thread or is_mentioned:
