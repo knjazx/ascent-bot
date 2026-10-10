@@ -18,7 +18,10 @@ from discord.ext import commands
 import config
 from ai_helper import KnowledgeBaseAI
 from rate_limiter import UserRateLimiter
-from feedback import FeedbackView
+from feedback import FeedbackView, log_bot_activity, get_target_logs_channel
+
+# Кэш создателей веток: thread_id -> user_id
+thread_owners: dict[int, int] = {}
 
 # Настройка логирования
 logging.basicConfig(
@@ -164,6 +167,22 @@ async def ask_command(interaction: discord.Interaction, question: str):
     )
     feedback_view = FeedbackView(question=question, answer=answer)
     await interaction.followup.send(embed=embed, view=feedback_view)
+
+    # Логируем обращение в канал логов Лиги
+    loc_name = f"<#{interaction.channel_id}>" if interaction.channel_id else "Слэш-команда /ask"
+    await log_bot_activity(
+        client=bot,
+        title="💬 Новое обращение участника (/ask)",
+        color=discord.Color.blue(),
+        user=interaction.user,
+        location_str=loc_name,
+        fields=[
+            ("❓ Запрос участника", f"*{question[:400]}*", False),
+            ("🤖 Ответ бота", answer_truncated[:800] + ("..." if len(answer_truncated) > 800 else ""), False)
+        ],
+        guild=interaction.guild
+    )
+
 
 
 @bot.tree.command(name="faq", description="Часто задаваемые вопросы по регламенту ASCENT LEAGUE CS2")
@@ -357,6 +376,37 @@ async def get_thread_history(thread: discord.Thread, current_message: discord.Me
     return history
 
 
+async def get_thread_owner_id(thread: discord.Thread) -> int | None:
+    """Определяет ID участника, создавшего обращение в данной ветке."""
+    if thread.id in thread_owners:
+        return thread_owners[thread.id]
+
+    try:
+        starter = thread.starter_message
+        if not starter and thread.parent:
+            starter = await thread.parent.fetch_message(thread.id)
+        if starter and not starter.author.bot:
+            thread_owners[thread.id] = starter.author.id
+            return starter.author.id
+    except Exception:
+        pass
+
+    try:
+        async for msg in thread.history(limit=8, oldest_first=True):
+            if not msg.author.bot:
+                thread_owners[thread.id] = msg.author.id
+                return msg.author.id
+            elif msg.mentions:
+                for u in msg.mentions:
+                    if not u.bot:
+                        thread_owners[thread.id] = u.id
+                        return u.id
+    except Exception:
+        pass
+
+    return None
+
+
 @bot.event
 async def on_message(message: discord.Message):
     """Обработка сообщений в канале помощи или при упоминании бота."""
@@ -382,6 +432,26 @@ async def on_message(message: discord.Message):
         and isinstance(message.channel, discord.Thread)
         and parent_id == config.HELP_CHANNEL_ID
     )
+
+    # 1. ЗАЩИТА ВЕТОК: Никто не может писать в чужие ветки!
+    if is_help_thread:
+        thread = message.channel
+        owner_id = await get_thread_owner_id(thread)
+        is_admin = is_user_admin(message.author)
+        # Если в ветку пишет посторонний пользователь (не создатель ветки и не администратор/судья)
+        if owner_id and message.author.id != owner_id and not is_admin:
+            try:
+                await message.delete()
+                warning_text = (
+                    f"⛔ {message.author.mention}, эта ветка является персональным обращением другого игрока.\n"
+                    f"Писать в чужие ветки запрещено! Пожалуйста, задайте свой вопрос в основном канале <#{config.HELP_CHANNEL_ID}>."
+                )
+                await thread.send(warning_text, delete_after=6)
+            except discord.Forbidden:
+                logger.warning(f"У бота нет прав на удаление сообщений (Manage Messages) в ветке {thread.id}")
+            except Exception as e:
+                logger.error(f"Ошибка при модерации чужого сообщения в ветке: {e}")
+            return
 
     if is_help_channel or is_help_thread or is_mentioned:
         clean_content = message.clean_content
@@ -423,12 +493,19 @@ async def on_message(message: discord.Message):
                 color=EMBED_COLOR
             )
 
-            # Отправляем сообщение в чат ответом пользователю (строго 1 раз, не удаляется)
+            # Ставим реакцию ⏳ на сообщение в чате (подтверждение получения)
             try:
-                await message.reply(embed=embed)
+                await message.add_reaction("⏳")
             except Exception:
+                pass
+
+            # Отправляем сообщение в ЛС (Личные сообщения), чтобы оно было видно ТОЛЬКО этому пользователю!
+            try:
+                await message.author.send(embed=embed)
+            except (discord.Forbidden, discord.HTTPException):
+                # Если у пользователя закрыты ЛС от участников сервера, отправляем исчезающее сообщение
                 try:
-                    await message.channel.send(content=f"{message.author.mention}", embed=embed)
+                    await message.channel.send(content=f"{message.author.mention}", embed=embed, delete_after=6)
                 except Exception:
                     pass
             return
@@ -462,6 +539,7 @@ async def on_message(message: discord.Message):
                 logger.error(f"Ошибка при создании ветки: {e}")
 
             if thread:
+                thread_owners[thread.id] = message.author.id
                 async with thread.typing():
                     answer = await ai.generate_answer(clean_content, author_name=message.author.display_name)
                     embed = discord.Embed(
@@ -476,6 +554,21 @@ async def on_message(message: discord.Message):
                         embed=embed,
                         view=feedback_view
                     )
+
+                # Логируем в канал логов
+                loc_name = thread.mention if hasattr(thread, "mention") else f"<#{thread.id}>"
+                await log_bot_activity(
+                    client=bot,
+                    title="💬 Новое обращение в ветке",
+                    color=discord.Color.blue(),
+                    user=message.author,
+                    location_str=loc_name,
+                    fields=[
+                        ("❓ Запрос участника", f"*{clean_content[:400]}*", False),
+                        ("🤖 Ответ бота", answer[:800] + ("..." if len(answer) > 800 else ""), False)
+                    ],
+                    guild=message.guild
+                )
                 return
 
         # Если сообщение внутри существующей ветки помощи или при прямом упоминании
@@ -498,6 +591,22 @@ async def on_message(message: discord.Message):
             embed.set_footer(text=f"{config.SERVER_NAME} • Заявитель: {message.author.display_name}")
             feedback_view = FeedbackView(question=clean_content, answer=answer)
             await message.reply(embed=embed, view=feedback_view)
+
+            # Логируем ответ в ветке в канал логов
+            loc_name = message.channel.mention if hasattr(message.channel, "mention") else f"<#{message.channel.id}>"
+            await log_bot_activity(
+                client=bot,
+                title="💬 Ответ в ветке обращения",
+                color=discord.Color.blue(),
+                user=message.author,
+                location_str=loc_name,
+                fields=[
+                    ("❓ Запрос участника", f"*{clean_content[:400]}*", False),
+                    ("🤖 Ответ бота", answer[:800] + ("..." if len(answer) > 800 else ""), False)
+                ],
+                guild=message.guild
+            )
+
 
 
 def main():

@@ -57,24 +57,36 @@ def set_setting(key: str, value):
         pass
 
 
+CURRENT_LOGS_CHANNEL_ID: int | None = None
+
+
 def get_logs_channel_id() -> int | None:
-    """Возвращает ID канала логов/отзывов (из settings.json или .env)."""
+    """Возвращает ID канала логов/отзывов (из памяти, settings.json или .env)."""
+    global CURRENT_LOGS_CHANNEL_ID
+    if CURRENT_LOGS_CHANNEL_ID:
+        return CURRENT_LOGS_CHANNEL_ID
+
     # 1. Приоритет: настроенный через команду /set_logs_channel
     saved = get_setting("LOGS_CHANNEL_ID")
     if saved:
         try:
-            return int(saved)
+            CURRENT_LOGS_CHANNEL_ID = int(saved)
+            return CURRENT_LOGS_CHANNEL_ID
         except (ValueError, TypeError):
             pass
 
     # 2. Переменная окружения
     env_val = os.getenv("LOGS_CHANNEL_ID", "").strip().strip('"').strip("'")
     if env_val.isdigit():
-        return int(env_val)
+        CURRENT_LOGS_CHANNEL_ID = int(env_val)
+        return CURRENT_LOGS_CHANNEL_ID
     return None
 
 
 def set_logs_channel_id(channel_id: int):
-    """Сохраняет ID канала логов/отзывов."""
-    set_setting("LOGS_CHANNEL_ID", channel_id)
+    """Сохраняет ID канала логов/отзывов в память и settings.json."""
+    global CURRENT_LOGS_CHANNEL_ID
+    CURRENT_LOGS_CHANNEL_ID = int(channel_id)
+    set_setting("LOGS_CHANNEL_ID", int(channel_id))
+
 
